@@ -35,7 +35,7 @@ app.use(
     origin: [
       "http://localhost:5173",
       "https://BB-Vote-sadatriyad.surge.sh",
-      "https://BB-Vote.netlify.app",
+      "https://BB-Vote.netlify.app/",
       "https://binarybeasts-auth.web.app",
     ],
     credentials: true,
