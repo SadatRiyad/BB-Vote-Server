@@ -33,9 +33,9 @@ app.use(cookieParser());
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",
+      // "http://localhost:5173",
       "https://BB-Vote-sadatriyad.surge.sh",
-      "https://BB-Vote.netlify.app/",
+      "https://bb-vote.netlify.app",
       "https://binarybeasts-auth.web.app",
     ],
     credentials: true,
