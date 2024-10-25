@@ -34,7 +34,7 @@ app.use(
   cors({
     origin: [
       // "http://localhost:5173",
-      "https://BB-Vote-sadatriyad.surge.sh",
+      "https://bb-vote-sadatriyad.surge.sh",
       "https://bb-vote.netlify.app",
       "https://binarybeasts-auth.web.app",
     ],
@@ -68,7 +68,7 @@ async function run() {
       }
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
-          console.log(err);
+          // console.log(err);
           return res.status(401).send({ error: "Unauthorized" });
         }
         // console.log("value in the token", decoded);
@@ -130,7 +130,7 @@ async function run() {
 
       const result = await OTPSCollection.insertOne(otpData);
       await sendVerificationEmail(email, otp);
-      console.log(result);
+      // console.log(result);
       res
         .send({
           success: true,
@@ -141,10 +141,6 @@ async function run() {
     });
 
     // verify otp
-    // if email and otp are same then update the otpStatus to used
-    // if otpStatus is used then send error
-    // if otp is not same then send error
-    // if otp is same then send success
     app.post("/verify-otp", async (req, res) => {
       const { email, otp } = req.body;
       const query = {
@@ -154,7 +150,7 @@ async function run() {
       const latestOTP = await OTPSCollection.findOne(query, {
         sort: { otpSentAt: -1 },
       });
-      console.log(latestOTP);
+      // console.log(latestOTP);
 
       if (!latestOTP) {
         return res.status(404).json({ error: "OTP not matched with email" });
@@ -406,7 +402,7 @@ async function run() {
     });
 
     // Get all the data from the collection
-    app.get("/Candidates", async (req, res) => {
+    app.get("/Candidates", verifyToken, async (req, res) => {
       const data = CandidatesCollection.find().sort({ CandidateID: -1 });
       const result = await data.toArray();
       res.send(result);
@@ -725,7 +721,7 @@ async function run() {
     //clearing Token
     app.post("/logout", async (req, res) => {
       const user = req.body;
-      console.log("logging out", user);
+      // console.log("logging out", user);
       res
         .clearCookie("token", { ...cookieOptions, maxAge: 0 })
         .send({ success: true });
