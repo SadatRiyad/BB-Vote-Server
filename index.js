@@ -18,6 +18,22 @@ const client = new MongoClient(uri, {
   },
 });
 
+
+// socket.io
+const http = require('http');
+const socketIo = require('socket.io');
+const server = http.createServer(app);
+const io = socketIo(server);
+
+io.on('connection', (socket) => {
+  console.log('A user connected.');
+
+  socket.on('disconnect', () => {
+      console.log('A user disconnected.');
+  });
+});
+
+// socket.io end
 // Let's create a cookie options for both production and local server
 const cookieOptions = {
   httpOnly: true,
@@ -33,10 +49,10 @@ app.use(cookieParser());
 app.use(
   cors({
     origin: [
-      // "http://localhost:5173",
-      "https://bb-vote-sadatriyad.surge.sh",
-      "https://bb-vote.netlify.app",
-      "https://binarybeasts-auth.web.app",
+      "http://localhost:5173",
+      // "https://bb-vote-sadatriyad.surge.sh",
+      // "https://bb-vote.netlify.app",
+      // "https://binarybeasts-auth.web.app",
     ],
     credentials: true,
   })
@@ -53,6 +69,7 @@ async function run() {
     // Database Collections
     const db = client.db("BB-VoteDB");
     const OTPSCollection = db.collection("OTPS");
+    const VotesCollection = db.collection("Votes");
     const UsersCollection = db.collection("Users");
     const CandidatesCollection = db.collection("Candidates");
     const userReviewsCollection = db.collection("userReviews");
@@ -300,6 +317,21 @@ async function run() {
       res.send(result);
     });
 
+    // patch isCandidate true using email
+    app.patch("/users/candidate/:email", verifyToken, async (req, res) => {
+      const email = req.params.email; // Ensure this retrieves the email correctly
+      const filter = { email: email };
+      const updatedDoc = {
+        $set: {
+          isCandidate: true,
+        },
+      };
+    
+      const result = await UsersCollection.updateOne(filter, updatedDoc);
+      // console.log(`Update result:`, result); // Debugging log
+      res.send(result);
+    });
+    
     // patch role admin
     app.patch(
       "/users/admin/:id",
@@ -414,6 +446,160 @@ async function run() {
       const result = await CandidatesCollection.insertOne(Candidate);
       res.send(result);
     });
+
+    // POST /Candidate/vote
+// app.post("/Candidate/vote/:id", verifyToken, async (req, res) => {
+//   try {
+//     const { candidateId } = req.body;
+//     const userId = req.params.id; // Extract userId from token
+//     console.log("userId", userId);
+
+//     // Ensure candidateId is an ObjectId
+//     const candidateObjectId = new ObjectId(candidateId);
+
+//     // Check if the user has already voted
+//     const existingVote = await VotesCollection.findOne({ userId });
+//     if (existingVote) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "You have already voted.",
+//       });
+//     }
+
+//     // Verify the candidate exists
+//     const candidate = await CandidatesCollection.findOne({
+//       _id: candidateObjectId,
+//     });
+//     if (!candidate) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Candidate not found.",
+//       });
+//     }
+
+//     // Record the vote
+//     const vote = {
+//       userId,
+//       candidateId: candidateObjectId,
+//       votedAt: new Date(),
+//     };
+//     await VotesCollection.insertOne(vote);
+
+//     // Emit updates when votes are cast
+//     // const results = await CandidatesCollection.find().toArray();
+//     // const votes = await VotesCollection.find().toArray();
+//     // io.emit("voteUpdate", results);
+//     // io.emit("voteUpdate", votes);
+//        // Emit real-time updates
+//        await updateVotes();
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Vote submitted successfully!",
+//     });
+//   } catch (error) {
+//     console.error("Error submitting vote:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "An error occurred while submitting the vote.",
+//     });
+//   }
+// });
+
+app.post("/Candidate/vote/:id", verifyToken, async (req, res) => {
+    try {
+        const { candidateId } = req.body;
+        const userId = req.params.id;
+    console.log("userId", userId);
+    console.log("candidateId", candidateId);
+
+        //     // Ensure candidateId is an ObjectId
+    const candidateObjectId = new ObjectId(candidateId);
+
+//     // Check if the user has already voted
+    const existingVote = await VotesCollection.findOne({ userId });
+    if (existingVote) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already voted.",
+      });
+    }
+
+//     // Verify the candidate exists
+    const candidate = await CandidatesCollection.findOne({
+      _id: candidateObjectId,
+    });
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: "Candidate not found.",
+      });
+    }
+
+        const vote = {
+            userId,
+            candidateId: candidateObjectId,
+            // bd time zone
+            votedAt: new Date().toLocaleString("en-US", {
+                timeZone: "Asia/Dhaka",
+            }),
+        };
+        await VotesCollection.insertOne(vote);
+
+        // Emit real-time updates
+        const results = await CandidatesCollection.find().toArray();
+        io.emit('voteUpdate', results);
+
+        res.status(200).json({ success: true, message: 'Vote submitted successfully!' });
+    } catch (error) {
+        console.error('Error submitting vote:', error);
+        res.status(500).json({ success: false, message: 'An error occurred while submitting the vote.' });
+    }
+});
+
+
+
+// Backend API to fetch voting results
+// GET /Candidate/results
+app.get('/Candidate/results',verifyToken, async (req, res) => {
+  try {
+      // Aggregate votes for each candidate
+      const results = await CandidatesCollection.aggregate([
+          {
+              $lookup: {
+                  from: 'Votes', // Replace with the name of your votes collection
+                  localField: '_id', // Match the candidate's _id field with the foreignField
+                  foreignField: 'candidateId', // Match with the candidateId in the votes collection
+                  as: 'votes',
+              },
+          },
+          {
+              $project: {
+                  name: 1, // Candidate name
+                  party: 1, // Candidate party
+                  votesCount: { $size: '$votes' }, // Count the number of votes for each candidate
+              },
+          },
+          {
+              $sort: { votesCount: -1 }, // Sort the results by votesCount in descending order
+          },
+      ]).toArray();
+
+      // Return the results as JSON
+      res.status(200).json({
+          success: true,
+          results: results, // Send the aggregated data
+      });
+  } catch (error) {
+      console.error('Error fetching results:', error);
+      res.status(500).json({
+          success: false,
+          message: 'Failed to fetch results.',
+      });
+  }
+});
+
+
 
     // get Candidate by id
     app.get("/Candidate/:id", verifyToken, async (req, res) => {
@@ -711,7 +897,7 @@ async function run() {
     //creating Token
     app.post("/jwt", async (req, res) => {
       const user = req.body;
-      // console.log("user for token", user);
+      console.log("user for token", user);
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "7d",
       });
