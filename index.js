@@ -51,6 +51,7 @@ app.use(
       // "http://localhost:5173",
       "https://bb-vote-sadatriyad.surge.sh",
       "https://bb-vote.netlify.app",
+      "https://bb-vote.netlify.app/",
       "https://binarybeasts-auth.web.app",
       "https://bb-vote.tech",
     ],
