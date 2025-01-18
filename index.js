@@ -18,18 +18,17 @@ const client = new MongoClient(uri, {
   },
 });
 
-
 // socket.io
-const http = require('http');
-const socketIo = require('socket.io');
+const http = require("http");
+const socketIo = require("socket.io");
 const server = http.createServer(app);
 const io = socketIo(server);
 
-io.on('connection', (socket) => {
-  console.log('A user connected.');
+io.on("connection", (socket) => {
+  console.log("A user connected.");
 
-  socket.on('disconnect', () => {
-      console.log('A user disconnected.');
+  socket.on("disconnect", () => {
+    console.log("A user disconnected.");
   });
 });
 
@@ -69,6 +68,7 @@ async function run() {
     // Database Collections
     const db = client.db("BB-VoteDB");
     const OTPSCollection = db.collection("OTPS");
+    const ElectionsCollection = db.collection("Elections");
     const VotesCollection = db.collection("Votes");
     const UsersCollection = db.collection("Users");
     const CandidatesCollection = db.collection("Candidates");
@@ -147,7 +147,7 @@ async function run() {
 
       const result = await OTPSCollection.insertOne(otpData);
       await sendVerificationEmail(email, otp);
-      // console.log(result);
+      console.log("OTP sent successfully:", otp);
       res
         .send({
           success: true,
@@ -326,12 +326,12 @@ async function run() {
           isCandidate: true,
         },
       };
-    
+
       const result = await UsersCollection.updateOne(filter, updatedDoc);
       // console.log(`Update result:`, result); // Debugging log
       res.send(result);
     });
-    
+
     // patch role admin
     app.patch(
       "/users/admin/:id",
@@ -440,6 +440,70 @@ async function run() {
       res.send(result);
     });
 
+    /////////////
+
+    // Submit a Vote
+    app.post("/elections/:id/vote", verifyToken, async (req, res) => {
+      const electionId = req.params.id;
+      const { candidateId } = req.body;
+
+      try {
+        const existingVote = await VotesCollection.findOne({
+          userId: req.user._id,
+          electionId,
+        });
+        if (existingVote) {
+          return res
+            .status(400)
+            .json({ success: false, message: "You have already voted." });
+        }
+
+        const vote = {
+          userId: req.user._id,
+          electionId,
+          candidateId,
+          votedAt: new Date(),
+        };
+        await VotesCollection.insertOne(vote);
+
+        res
+          .status(201)
+          .json({ success: true, message: "Vote submitted successfully." });
+      } catch (error) {
+        console.error("Error submitting vote:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to submit vote." });
+      }
+    });
+
+    ///////////////////
+
+    // Get all the candidates for a specific election
+    app.get("/elections/:id/candidates", verifyToken, async (req, res) => {
+      const electionId = req.params.id;
+
+      try {
+        const election = await ElectionsCollection.findOne({
+          _id: new ObjectId(electionId),
+        });
+        if (!election) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Election not found." });
+        }
+
+        const data = CandidatesCollection.find({status: "Active"}).sort({ CandidateID: -1 });
+        const result = await data.toArray();
+        res.status(200).json({ success: true, result });
+      } catch (error) {
+        console.error("Error fetching candidates:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to fetch candidates." });
+      }
+    });
+
     // Post Vote
     app.post("/Candidate", verifyToken, async (req, res) => {
       const Candidate = req.body;
@@ -447,159 +511,165 @@ async function run() {
       res.send(result);
     });
 
-    // POST /Candidate/vote
-// app.post("/Candidate/vote/:id", verifyToken, async (req, res) => {
-//   try {
-//     const { candidateId } = req.body;
-//     const userId = req.params.id; // Extract userId from token
-//     console.log("userId", userId);
+    app.post("/elections/vote/:id", verifyToken, async (req, res) => {
+      try {
+        const { candidateId, userId } = req.body;
+        const electionId = req.params.id;
 
-//     // Ensure candidateId is an ObjectId
-//     const candidateObjectId = new ObjectId(candidateId);
+        // Ensure candidateId is an ObjectId
+        const candidateObjectId = new ObjectId(candidateId);
 
-//     // Check if the user has already voted
-//     const existingVote = await VotesCollection.findOne({ userId });
-//     if (existingVote) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "You have already voted.",
-//       });
-//     }
+        // Check if the user has already voted in this election before check both userId and electionId if both are same then user already voted
+        const existingVote = await VotesCollection.findOne({
+          userId,
+          electionId: new ObjectId(electionId),
+        });
+        
+        if (existingVote) {
+          return res.status(400).json({
+            success: false,
+            message: "You have already voted.",
+          });
+        }
 
-//     // Verify the candidate exists
-//     const candidate = await CandidatesCollection.findOne({
-//       _id: candidateObjectId,
-//     });
-//     if (!candidate) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Candidate not found.",
-//       });
-//     }
-
-//     // Record the vote
-//     const vote = {
-//       userId,
-//       candidateId: candidateObjectId,
-//       votedAt: new Date(),
-//     };
-//     await VotesCollection.insertOne(vote);
-
-//     // Emit updates when votes are cast
-//     // const results = await CandidatesCollection.find().toArray();
-//     // const votes = await VotesCollection.find().toArray();
-//     // io.emit("voteUpdate", results);
-//     // io.emit("voteUpdate", votes);
-//        // Emit real-time updates
-//        await updateVotes();
-
-//     res.status(200).json({
-//       success: true,
-//       message: "Vote submitted successfully!",
-//     });
-//   } catch (error) {
-//     console.error("Error submitting vote:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "An error occurred while submitting the vote.",
-//     });
-//   }
-// });
-
-app.post("/Candidate/vote/:id", verifyToken, async (req, res) => {
-    try {
-        const { candidateId } = req.body;
-        const userId = req.params.id;
-    console.log("userId", userId);
-    console.log("candidateId", candidateId);
-
-        //     // Ensure candidateId is an ObjectId
-    const candidateObjectId = new ObjectId(candidateId);
-
-//     // Check if the user has already voted
-    const existingVote = await VotesCollection.findOne({ userId });
-    if (existingVote) {
-      return res.status(400).json({
-        success: false,
-        message: "You have already voted.",
-      });
-    }
-
-//     // Verify the candidate exists
-    const candidate = await CandidatesCollection.findOne({
-      _id: candidateObjectId,
-    });
-    if (!candidate) {
-      return res.status(404).json({
-        success: false,
-        message: "Candidate not found.",
-      });
-    }
+        // Verify the candidate exists 
+        const candidate = await CandidatesCollection.findOne({
+          _id: candidateObjectId,
+        });
+        if (!candidate) {
+          return res.status(404).json({
+            success: false,
+            message: "Candidate not found.",
+          });
+        }
 
         const vote = {
-            userId,
-            candidateId: candidateObjectId,
-            // bd time zone
-            votedAt: new Date().toLocaleString("en-US", {
-                timeZone: "Asia/Dhaka",
-            }),
+          userId,
+          candidateId: candidateObjectId,
+          electionId: new ObjectId(electionId),
+          // bd time zone
+          votedAt: new Date().toLocaleString("en-US", {
+            timeZone: "Asia/Dhaka",
+          }),
         };
         await VotesCollection.insertOne(vote);
 
         // Emit real-time updates
         const results = await CandidatesCollection.find().toArray();
-        io.emit('voteUpdate', results);
+        io.emit("voteUpdate", results);
 
-        res.status(200).json({ success: true, message: 'Vote submitted successfully!' });
-    } catch (error) {
-        console.error('Error submitting vote:', error);
-        res.status(500).json({ success: false, message: 'An error occurred while submitting the vote.' });
-    }
-});
-
-
-
-// Backend API to fetch voting results
-// GET /Candidate/results
-app.get('/Candidate/results',verifyToken, async (req, res) => {
-  try {
-      // Aggregate votes for each candidate
-      const results = await CandidatesCollection.aggregate([
-          {
-              $lookup: {
-                  from: 'Votes', // Replace with the name of your votes collection
-                  localField: '_id', // Match the candidate's _id field with the foreignField
-                  foreignField: 'candidateId', // Match with the candidateId in the votes collection
-                  as: 'votes',
-              },
-          },
-          {
-              $project: {
-                  name: 1, // Candidate name
-                  party: 1, // Candidate party
-                  votesCount: { $size: '$votes' }, // Count the number of votes for each candidate
-              },
-          },
-          {
-              $sort: { votesCount: -1 }, // Sort the results by votesCount in descending order
-          },
-      ]).toArray();
-
-      // Return the results as JSON
-      res.status(200).json({
-          success: true,
-          results: results, // Send the aggregated data
-      });
-  } catch (error) {
-      console.error('Error fetching results:', error);
-      res.status(500).json({
+        res
+          .status(200)
+          .json({ success: true, message: "Vote submitted successfully!" });
+      } catch (error) {
+        console.error("Error submitting vote:", error);
+        res.status(500).json({
           success: false,
-          message: 'Failed to fetch results.',
+          message: "An error occurred while submitting the vote.",
+        });
+      }
+    });
+
+    // check if user has already voted in a specific election
+    app.get("/elections/:id/votes/:userId", verifyToken, async (req, res) => {
+      const { id, userId } = req.params;
+      const query = {
+        electionId: new ObjectId(id),
+        userId,
+      };
+      const vote = await VotesCollection.findOne(query);
+      if (vote) {
+        // if vote then find the candidate with the candidateId and return the candidate full data
+        const candidate = await CandidatesCollection.findOne({
+          _id: vote.candidateId,
+        });
+        if (candidate) {
+          return res.status(200).json({ voted: true, candidate });
+        }
+        return res.status(404).json({ error: "Candidate not found" });
+      }
+      res.status(200).json({ voted: false });
       });
-  }
-});
 
 
+    // Backend API to fetch voting results
+    app.get("/elections/:id/results", verifyToken, async (req, res) => {
+      const electionId = new ObjectId(req.params.id);
+      console.log("Election ID:", electionId);
+  
+      try {
+          const results = await VotesCollection.aggregate([
+              { $match: { electionId } },
+              { $group: { _id: "$candidateId", votes: { $sum: 1 } } },
+              { $sort: { votes: -1 } },
+              {
+                  $lookup: {
+                      from: "Candidates",
+                      localField: "_id",
+                      foreignField: "_id",
+                      as: "candidate",
+                  },
+              },
+              { $unwind: { path: "$candidate" } },
+              {
+                  $project: {
+                      _id: 0,
+                      candidateId: "$_id",
+                      votes: 1, // Keeps the calculated votes
+                      name: "$candidate.name",
+                      party: "$candidate.party",
+                      status: "$candidate.status",
+                  },
+              },
+          ]).toArray();
+  
+          console.log("Results:", results);
+          res.status(200).json({ success: true, results });
+      } catch (error) {
+          console.error("Error fetching results:", error);
+          res.status(500).json({ success: false, message: "Failed to fetch results." });
+      }
+  });
+  
+  
+    // GET /Candidate/results
+    // app.get("/Candidate/results", verifyToken, async (req, res) => {
+    //   try {
+    //     // Aggregate votes for each candidate
+    //     const results = await CandidatesCollection.aggregate([
+    //       {
+    //         $lookup: {
+    //           from: "Votes", // Replace with the name of your votes collection
+    //           localField: "_id", // Match the candidate's _id field with the foreignField
+    //           foreignField: "candidateId", // Match with the candidateId in the votes collection
+    //           as: "votes",
+    //         },
+    //       },
+    //       {
+    //         $project: {
+    //           name: 1, // Candidate name
+    //           party: 1, // Candidate party
+    //           votesCount: { $size: "$votes" }, // Count the number of votes for each candidate
+    //         },
+    //       },
+    //       {
+    //         $sort: { votesCount: -1 }, // Sort the results by votesCount in descending order
+    //       },
+    //     ]).toArray();
+
+    //     // Return the results as JSON
+    //     res.status(200).json({
+    //       success: true,
+    //       results: results, // Send the aggregated data
+    //     });
+    //   } catch (error) {
+    //     console.error("Error fetching results:", error);
+    //     res.status(500).json({
+    //       success: false,
+    //       message: "Failed to fetch results.",
+    //     });
+    //   }
+    // });
 
     // get Candidate by id
     app.get("/Candidate/:id", verifyToken, async (req, res) => {
@@ -646,6 +716,147 @@ app.get('/Candidate/results',verifyToken, async (req, res) => {
       const result = await CandidatesCollection.deleteOne(query);
       res.send(result);
     });
+
+    //................................................//
+
+    // Election Management APIs
+    app.get("/elections", verifyToken, async (req, res) => {
+      try {
+        const elections = await ElectionsCollection.find().toArray();
+        res.status(200).json({ success: true, elections });
+      } catch (error) {
+        console.error("Error fetching elections:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to fetch elections." });
+      }
+    });
+
+    // app.post("/elections", verifyToken, verifyAdmin, async (req, res) => {
+    //   const { name, startDate, endDate, status } = req.body;
+
+    //   if (!name || !startDate || !endDate || !status) {
+    //     return res
+    //       .status(400)
+    //       .json({ success: false, message: "All fields are required." });
+    //   }
+
+    //   try {
+    //     const newElection = {
+    //       name,
+    //       startDate: new Date(startDate),
+    //       endDate: new Date(endDate),
+    //       status,
+    //     };
+    //     const result = await ElectionsCollection.insertOne(newElection);
+    //     res.status(201).json({ success: true, election: result.ops[0] });
+    //   } catch (error) {
+    //     console.error("Error creating election:", error);
+    //     res
+    //       .status(500)
+    //       .json({ success: false, message: "Failed to create election." });
+    //   }
+    // });
+
+    app.post("/elections", verifyToken, verifyAdmin, async (req, res) => {
+      const { name, startDate, endDate, status } = req.body;
+
+      console.log("Received Payload:", req.body); // Debugging log
+
+      // Validate input
+      if (!name || !startDate || !endDate || !status) {
+        return res
+          .status(400)
+          .json({ success: false, message: "All fields are required." });
+      }
+
+      try {
+        const newElection = {
+          name,
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          status,
+        };
+
+        // Insert the new election into the database
+        const result = await ElectionsCollection.insertOne(newElection);
+
+        if (result.acknowledged) {
+          res.status(201).json({
+            success: true,
+            election: { _id: result.insertedId, ...newElection },
+          });
+        } else {
+          throw new Error("Failed to insert election.");
+        }
+      } catch (error) {
+        console.error("Error creating election:", error.message);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to create election." });
+      }
+    });
+
+    app.put("/elections/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+      const { name, startDate, endDate, status } = req.body;
+
+      try {
+        const updatedElection = {
+          ...(name && { name }),
+          ...(startDate && { startDate: new Date(startDate) }),
+          ...(endDate && { endDate: new Date(endDate) }),
+          ...(status && { status }),
+        };
+
+        const result = await ElectionsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedElection }
+        );
+
+        if (result.matchedCount === 0) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Election not found." });
+        }
+
+        res
+          .status(200)
+          .json({ success: true, message: "Election updated successfully." });
+      } catch (error) {
+        console.error("Error updating election:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to update election." });
+      }
+    });
+
+    app.delete("/elections/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const result = await ElectionsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Election not found." });
+        }
+
+        res
+          .status(200)
+          .json({ success: true, message: "Election deleted successfully." });
+      } catch (error) {
+        console.error("Error deleting election:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to delete election." });
+      }
+    });
+
+    //...............................................//
 
     // get Premium Request by user for Candidate premium
     app.get("/premium-requests", verifyToken, async (req, res) => {
